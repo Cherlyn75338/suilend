@@ -10,6 +10,7 @@ module suilend::staker {
     // errors
     const ETreasuryCapNonZeroSupply: u64 = 0;
     const EInvariantViolation: u64 = 1;
+    const EInvariantReserveParity: u64 = 2; // used by reserve invariants
 
     // constants
     const U64_MAX: u64 = 18446744073709551615;
