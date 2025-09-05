@@ -195,6 +195,97 @@ module suilend::rate_limiter {
         )
     }
 
+    spec struct RateLimiter {
+        invariant config.window_duration > 0;
+        // Decimal values are always non-negative by construction
+        invariant suilend::decimal::to_scaled_val(prev_qty) >= 0u256;
+        invariant suilend::decimal::to_scaled_val(cur_qty) >= 0u256;
+    }
+
+    spec fun new_config(window_duration: u64, max_outflow: u64): RateLimiterConfig {
+        aborts_if !(window_duration > 0) with EInvalidConfig;
+        ensures result.window_duration == window_duration;
+        ensures result.max_outflow == max_outflow;
+    }
+
+    spec fun new(config: RateLimiterConfig, cur_time: u64): RateLimiter {
+        ensures result.config.window_duration == config.window_duration;
+        ensures result.config.max_outflow == config.max_outflow;
+        ensures result.window_start == cur_time;
+        ensures suilend::decimal::to_scaled_val(result.prev_qty) == 0u256;
+        ensures suilend::decimal::to_scaled_val(result.cur_qty) == 0u256;
+    }
+
+    spec fun update_internal(rate_limiter: &mut RateLimiter, cur_time: u64) {
+        // time must not go backwards
+        aborts_if cur_time < old(rate_limiter.window_start) with EInvalidTime;
+
+        // window_start never advances past cur_time
+        ensures rate_limiter.window_start <= cur_time;
+        // config is immutable under updates
+        ensures rate_limiter.config.window_duration == old(rate_limiter.config.window_duration);
+        ensures rate_limiter.config.max_outflow == old(rate_limiter.config.max_outflow);
+
+        // Case 1: still in current window -> no state change
+        ensures cur_time < old(rate_limiter.window_start) + old(rate_limiter.config.window_duration)
+            ==> (
+                rate_limiter.window_start == old(rate_limiter.window_start)
+                && suilend::decimal::to_scaled_val(rate_limiter.prev_qty) == suilend::decimal::to_scaled_val(old(rate_limiter.prev_qty))
+                && suilend::decimal::to_scaled_val(rate_limiter.cur_qty) == suilend::decimal::to_scaled_val(old(rate_limiter.cur_qty))
+            );
+
+        // Case 2: moved into next window -> slide and reset cur_qty
+        ensures cur_time >= old(rate_limiter.window_start) + old(rate_limiter.config.window_duration)
+            && cur_time < old(rate_limiter.window_start) + 2 * old(rate_limiter.config.window_duration)
+            ==> (
+                rate_limiter.window_start == old(rate_limiter.window_start) + old(rate_limiter.config.window_duration)
+                && suilend::decimal::to_scaled_val(rate_limiter.prev_qty) == suilend::decimal::to_scaled_val(old(rate_limiter.cur_qty))
+                && suilend::decimal::to_scaled_val(rate_limiter.cur_qty) == 0u256
+            );
+
+        // Case 3: jumped over at least one full window -> fully reset
+        ensures cur_time >= old(rate_limiter.window_start) + 2 * old(rate_limiter.config.window_duration)
+            ==> (
+                rate_limiter.window_start == cur_time
+                && suilend::decimal::to_scaled_val(rate_limiter.prev_qty) == 0u256
+                && suilend::decimal::to_scaled_val(rate_limiter.cur_qty) == 0u256
+            );
+    }
+
+    spec fun current_outflow(rate_limiter: &RateLimiter, cur_time: u64): Decimal {
+        // division by zero protection
+        aborts_if rate_limiter.config.window_duration == 0;
+        // outflow is bounded by the sum of the two buckets
+        ensures suilend::decimal::le(
+            result,
+            suilend::decimal::add(rate_limiter.prev_qty, rate_limiter.cur_qty),
+        );
+    }
+
+    spec fun process_qty(rate_limiter: &mut RateLimiter, cur_time: u64, qty: Decimal) {
+        aborts_if cur_time < old(rate_limiter.window_start) with EInvalidTime;
+        aborts_if rate_limiter.config.window_duration == 0;
+        // after processing, computed outflow must be within the configured maximum
+        ensures suilend::decimal::le(
+            current_outflow(rate_limiter, cur_time),
+            suilend::decimal::from(rate_limiter.config.max_outflow),
+        );
+        // the current bucket must at least include the newly processed qty
+        ensures suilend::decimal::ge(rate_limiter.cur_qty, qty);
+    }
+
+    spec fun remaining_outflow(rate_limiter: &mut RateLimiter, cur_time: u64): Decimal {
+        aborts_if cur_time < old(rate_limiter.window_start) with EInvalidTime;
+        aborts_if rate_limiter.config.window_duration == 0;
+        // remaining outflow is non-negative and upper-bounded by max_outflow
+        ensures suilend::decimal::le(result, suilend::decimal::from(rate_limiter.config.max_outflow));
+        // remaining + current_outflow never exceeds max_outflow (saturating subtraction property)
+        ensures suilend::decimal::le(
+            suilend::decimal::add(result, current_outflow(rate_limiter, cur_time)),
+            suilend::decimal::from(rate_limiter.config.max_outflow),
+        );
+    }
+
     #[test]
     fun test_rate_limiter() {
         let mut rate_limiter = new(
