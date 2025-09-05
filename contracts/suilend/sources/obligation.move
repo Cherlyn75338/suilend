@@ -1164,6 +1164,26 @@ module suilend::obligation {
         option::destroy_none(exist_stale_oracles);
     }
 
+    spec module {
+        pragma verify = true;
+
+        spec fun is_healthy<P>(obligation: &Obligation<P>): bool;
+        spec fun is_liquidatable<P>(obligation: &Obligation<P>): bool;
+
+        spec invariant NonNegativeValues(obligation: Obligation) {
+            obligation.deposited_value_usd >= 0 &&
+            obligation.unweighted_borrowed_value_usd >= 0 &&
+            obligation.weighted_borrowed_value_usd >= 0 &&
+            obligation.weighted_borrowed_value_upper_bound_usd >= 0 &&
+            obligation.allowed_borrow_value_usd >= 0 &&
+            obligation.unhealthy_borrow_value_usd >= 0
+        };
+
+        spec invariant HealthyImpliesNotLiquidatable(obligation: Obligation) {
+            is_healthy(&obligation) ==> !is_liquidatable(&obligation)
+        };
+    }
+
     /// Checks if an obligation is in a "looped" state and zeroes out its liquidity mining
     /// rewards if it is.
     ///
