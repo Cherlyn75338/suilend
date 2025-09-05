@@ -108,6 +108,53 @@ module suilend::reserve {
         deposited_ctokens: Balance<CToken<P, T>>
     }
 
+    /* Invariant Helpers */
+
+    /// Returns the amount of SUI in the staker that is owed back to the reserve, if present.
+    /// For non-SUI reserves or when staker is not initialized, returns 0.
+    public(package) fun in_staker_liabilities_for_sui<P>(reserve: &Reserve<P>): u64 {
+        if (reserve.coin_type != type_name::get<SUI>()) {
+            return 0
+        };
+
+        if (!dynamic_field::exists_(&reserve.id, StakerKey {})) {
+            return 0
+        };
+
+        let staker: &Staker<SPRUNGSUI> = dynamic_field::borrow(&reserve.id, StakerKey {});
+        staker::liabilities(staker)
+    }
+
+    /// Assert parity between headline `reserve.available_amount` and dynamic field balances,
+    /// assuming there are no pending, unfulfilled LiquidityRequests.
+    /// For SUI, includes staker liabilities as part of effective available liquidity accounted in headline.
+    public(package) fun assert_balance_parity_no_pending<P, T>(reserve: &Reserve<P>) {
+        let balances: &Balances<P, T> = dynamic_field::borrow(&reserve.id, BalanceKey {});
+        let mut rhs = balance::value(&balances.available_amount);
+        if (reserve.coin_type == type_name::get<SUI>() && type_name::get<T>() == type_name::get<SUI>()) {
+            rhs = rhs + in_staker_liabilities_for_sui(reserve);
+        };
+        assert!(reserve.available_amount == rhs, EInvariantViolation);
+    }
+
+    /// Assert parity when there exists a known pending LiquidityRequest (amount already
+    /// deducted from headline `available_amount` but not yet split from Balances).
+    /// Call with `pending_liquidity_amount` equal to the sum of outstanding requests of type T.
+    public(package) fun assert_balance_parity_with_pending<P, T>(reserve: &Reserve<P>, pending_liquidity_amount: u64) {
+        let balances: &Balances<P, T> = dynamic_field::borrow(&reserve.id, BalanceKey {});
+        let mut rhs = balance::value(&balances.available_amount);
+        if (reserve.coin_type == type_name::get<SUI>() && type_name::get<T>() == type_name::get<SUI>()) {
+            rhs = rhs + in_staker_liabilities_for_sui(reserve);
+        };
+        assert!(reserve.available_amount + pending_liquidity_amount == rhs, EInvariantViolation);
+    }
+
+    /// Assert cToken supply parity between headline supply and dynamic field supply.
+    public(package) fun assert_ctoken_supply_parity<P, T>(reserve: &Reserve<P>) {
+        let balances: &Balances<P, T> = dynamic_field::borrow(&reserve.id, BalanceKey {});
+        assert!(reserve.ctoken_supply == balance::supply_value(&balances.ctoken_supply), EInvariantViolation);
+    }
+
     // === Events ===
     public struct InterestUpdateEvent has drop, copy {
         lending_market_id: address,

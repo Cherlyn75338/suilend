@@ -25,6 +25,7 @@ module suilend::lending_market {
     const ERewardPeriodNotOver: u64 = 5;
     const EInvalidObligationId: u64 = 6;
     const EInvalidFeeReceivers: u64 = 7;
+    const EInvariantViolation: u64 = 8;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 7;
@@ -50,6 +51,20 @@ module suilend::lending_market {
         bad_debt_usd: Decimal,
         /// unused
         bad_debt_limit_usd: Decimal,
+    }
+    /* Invariant Helpers */
+
+    /// Assert lending market version correctness.
+    public fun assert_current_version<P>(lending_market: &LendingMarket<P>) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+    }
+
+    /// Assert FeeReceivers dynamic field exists and is well-formed (non-zero total_weight, lengths match)
+    public fun assert_fee_receivers_present<P>(lending_market: &LendingMarket<P>) {
+        assert!(dynamic_field::exists_(&lending_market.id, FeeReceiversKey {}), EInvalidFeeReceivers);
+        let fr: &FeeReceivers = dynamic_field::borrow(&lending_market.id, FeeReceiversKey {});
+        assert!(vector::length(&fr.receivers) == vector::length(&fr.weights), EInvalidFeeReceivers);
+        assert!(fr.total_weight > 0, EInvalidFeeReceivers);
     }
 
     public struct LendingMarketOwnerCap<phantom P> has key, store {

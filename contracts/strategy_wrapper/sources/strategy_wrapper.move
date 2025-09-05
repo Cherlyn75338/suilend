@@ -8,6 +8,7 @@ module strategy_wrapper::strategy_wrapper {
     const EUnauthorizedRelayer: u64 = 3;
     const EObligationCapAlreadyBorrowed: u64 = 4;
     const EObligationCapNotBorrowed: u64 = 5;
+    const EInvariantViolation: u64 = 6;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
@@ -313,6 +314,17 @@ module strategy_wrapper::strategy_wrapper {
 
     public fun wrapped_cap_is_borrowed<P>(cap: &WrappedObligationCap<P>): bool {
         option::is_none(&cap.inner_cap)
+    }
+
+    // === Invariant Helper ===
+    /// Ensures that if the cap is marked borrowed, there is no inner cap present, and vice versa.
+    public fun assert_wrapped_cap_invariant<P>(cap: &WrappedObligationCap<P>) {
+        let is_borrowed = wrapped_cap_is_borrowed(cap);
+        if (is_borrowed) {
+            assert!(option::is_none(&cap.inner_cap), EInvariantViolation);
+        } else {
+            assert!(option::is_some(&cap.inner_cap), EInvariantViolation);
+        };
     }
 
     public fun relayer_cap_wrapped_id<P>(cap: &RelayerCap<P>): ID {

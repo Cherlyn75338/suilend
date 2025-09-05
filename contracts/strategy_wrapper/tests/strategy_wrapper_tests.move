@@ -321,6 +321,8 @@ module strategy_wrapper::strategy_wrapper_tests {
             &relayer_cap,
             scenario.ctx()
         );
+        // Invariant: borrowed state must reflect no inner cap
+        strategy_wrapper::assert_wrapped_cap_invariant(&wrapped_cap);
         
         // Try to borrow again - should fail and abort
         let (obligation_cap2, receipt2) = strategy_wrapper::borrow_obligation_cap<LENDING_MARKET>(
@@ -332,6 +334,8 @@ module strategy_wrapper::strategy_wrapper_tests {
         // This shouldn't be reached, but if it is, clean up properly
         strategy_wrapper::return_obligation_cap(&mut wrapped_cap, obligation_cap2, receipt2, scenario.ctx());
         strategy_wrapper::return_obligation_cap(&mut wrapped_cap, obligation_cap, receipt, scenario.ctx());
+        // Invariant: after return, inner cap is present
+        strategy_wrapper::assert_wrapped_cap_invariant(&wrapped_cap);
         test_utils::destroy(lending_market);
         strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
         strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
@@ -485,6 +489,7 @@ module strategy_wrapper::strategy_wrapper_tests {
             scenario.ctx()
         );
         assert!(strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 0);
+        strategy_wrapper::assert_wrapped_cap_invariant(&wrapped_cap);
         
         strategy_wrapper::return_obligation_cap<LENDING_MARKET>(
             &mut wrapped_cap,
@@ -493,6 +498,7 @@ module strategy_wrapper::strategy_wrapper_tests {
             scenario.ctx()
         );
         assert!(!strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 1);
+        strategy_wrapper::assert_wrapped_cap_invariant(&wrapped_cap);
         
         // Second borrow-return cycle
         let (obligation_cap2, receipt2) = strategy_wrapper::borrow_obligation_cap<LENDING_MARKET>(
@@ -501,6 +507,7 @@ module strategy_wrapper::strategy_wrapper_tests {
             scenario.ctx()
         );
         assert!(strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 2);
+        strategy_wrapper::assert_wrapped_cap_invariant(&wrapped_cap);
         
         strategy_wrapper::return_obligation_cap<LENDING_MARKET>(
             &mut wrapped_cap,
@@ -509,6 +516,7 @@ module strategy_wrapper::strategy_wrapper_tests {
             scenario.ctx()
         );
         assert!(!strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 3);
+        strategy_wrapper::assert_wrapped_cap_invariant(&wrapped_cap);
         
         // Step 4: Convert back to strategy cap
         let restored_strategy_cap = strategy_wrapper::convert_back_to_strategy_cap<LENDING_MARKET>(
