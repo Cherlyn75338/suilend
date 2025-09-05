@@ -1292,6 +1292,22 @@ module suilend::reserve {
         balance::increase_supply(&mut balances.ctoken_supply, new_ctokens)
     }
 
+    spec fun deposit_liquidity_and_mint_ctokens<P, T>(reserve: &mut Reserve<P>, liquidity: Balance<T>): Balance<CToken<P, T>> {
+        let old_total_supply = total_supply(old(reserve));
+        let old_total_supply_usd = market_value_upper_bound(old(reserve), old_total_supply);
+        let cfg = config(old(reserve));
+        aborts_if !(suilend::decimal::le(
+            suilend::decimal::add(old_total_supply, suilend::decimal::from(balance::value(&liquidity))),
+            suilend::decimal::from(deposit_limit(cfg))
+        ));
+        aborts_if !(suilend::decimal::le(
+            suilend::decimal::add(old_total_supply_usd, market_value_upper_bound(old(reserve), suilend::decimal::from(balance::value(&liquidity)))),
+            suilend::decimal::from(deposit_limit_usd(cfg))
+        ));
+        ensures reserve.ctoken_supply >= old(reserve).ctoken_supply; // minting never reduces supply
+        ensures reserve.available_amount >= old(reserve).available_amount; // deposit increases liquidity
+    }
+
     /// Redeems ctokens for liquidity from the reserve.
     ///
     /// # Arguments
@@ -1337,6 +1353,14 @@ module suilend::reserve {
             amount: liquidity_amount,
             fee: 0
         }
+    }
+
+    spec fun redeem_ctokens<P, T>(reserve: &mut Reserve<P>, ctokens: Balance<CToken<P, T>>): LiquidityRequest<P, T> {
+        // after redemption, invariant min available amounts must hold
+        ensures reserve.available_amount >= MIN_AVAILABLE_AMOUNT;
+        ensures reserve.ctoken_supply >= MIN_AVAILABLE_AMOUNT;
+        // ctoken supply strictly decreases by value(ctokens)
+        ensures reserve.ctoken_supply + balance::value(&ctokens) == old(reserve).ctoken_supply;
     }
 
     /// Fulfills a liquidity request by splitting the requested amount from the reserve's balance.
@@ -1538,6 +1562,21 @@ module suilend::reserve {
             amount: borrow_amount_with_fees,
             fee: borrow_fee
         }
+    }
+
+    spec fun borrow_liquidity<P, T>(reserve: &mut Reserve<P>, amount: u64): LiquidityRequest<P, T> {
+        let cfg = config(old(reserve));
+        // Bounds on borrowed amount
+        ensures suilend::decimal::le(reserve.borrowed_amount, suilend::decimal::from(borrow_limit(cfg)));
+        ensures suilend::decimal::le(
+            market_value_upper_bound(reserve, reserve.borrowed_amount),
+            suilend::decimal::from(borrow_limit_usd(cfg))
+        );
+        // After borrowing, reserve must not violate min availability
+        ensures reserve.available_amount >= MIN_AVAILABLE_AMOUNT;
+        ensures reserve.ctoken_supply >= MIN_AVAILABLE_AMOUNT;
+        // Accounting: available_amount decreases by requested + fee
+        ensures old(reserve).available_amount > reserve.available_amount;
     }
 
     /// Repays liquidity to the reserve.
