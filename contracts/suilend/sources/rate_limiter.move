@@ -195,6 +195,22 @@ module suilend::rate_limiter {
         )
     }
 
+    spec module {
+        pragma verify = true;
+
+        spec invariant PrevCurQtyNonNegative(rate_limiter: RateLimiter) {
+            rate_limiter.prev_qty >= 0 && rate_limiter.cur_qty >= 0
+        };
+
+        spec process_qty {
+            pragma aborts_if_is_strict;
+        }
+
+        spec remaining_outflow {
+            ensures result >= 0;
+        }
+    }
+
     #[test]
     fun test_rate_limiter() {
         let mut rate_limiter = new(
